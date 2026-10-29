@@ -5,19 +5,18 @@ from config import Settings
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('case,expected', [('unauthorized',401), ('huge_header',413),
+@pytest.mark.parametrize('case,expected', [('huge_header',413),
     ('chunked',413), ('slow',408), ('disconnect',400), ('slots',429)])
 async def test_preparse_guard(tmp_path, case, expected):
     called = False
     received = 0
     messages = []
-    s = Settings(api_key='a'*32, data_dir=tmp_path, min_free=0, max_upload=10, upload_seconds=0.02)
+    s = Settings(data_dir=tmp_path, min_free=0, max_upload=10, upload_seconds=0.02)
     async def downstream(scope, receive, send):
         nonlocal called
         called = True
     guard = RequestGuard(downstream, s)
-    headers = [(b'authorization', b'Bearer ' + b'a'*32)]
-    if case == 'unauthorized': headers = []
+    headers = []
     if case == 'huge_header': headers.append((b'content-length', b'999999'))
     if case == 'slots': guard.uploads = 2
     async def receive():
@@ -30,5 +29,5 @@ async def test_preparse_guard(tmp_path, case, expected):
     await guard({'type':'http','path':'/v1/transcription-jobs','method':'POST','headers':headers}, receive, send)
     assert messages[0]['status'] == expected
     assert not called
-    if case in ('unauthorized','huge_header','slots'): assert received == 0
+    if case in ('huge_header','slots'): assert received == 0
     if case != 'slots': assert guard.uploads == 0

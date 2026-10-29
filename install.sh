@@ -30,12 +30,12 @@ snapshot_download(os.environ['MODEL_ID'], local_dir=os.environ['MODEL_DIR'])
 PYTHON
 if [ ! -f .env ]; then
   .venv/bin/python - <<'PYTHON'
-import secrets, os, shlex
+import os, shlex
 from pathlib import Path
 path=Path('.env')
-path.write_text('API_KEY='+secrets.token_urlsafe(32)+'\nHOST=127.0.0.1\nPORT=8000\nCUDA_VISIBLE_DEVICES=0\nMODEL_DIR='+shlex.quote(os.environ['MODEL_DIR'])+'\n')
+path.write_text('HOST=127.0.0.1\nPORT=8000\nCUDA_VISIBLE_DEVICES=0\nMODEL_DIR='+shlex.quote(os.environ['MODEL_DIR'])+'\n')
 path.chmod(0o600)
 PYTHON
 fi
 .venv/bin/python -m pip freeze > installed-versions.txt
-echo '安装完成。执行 ./start.sh；密钥保存在 .env。'
+echo '安装完成。执行 ./start.sh。'

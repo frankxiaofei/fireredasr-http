@@ -31,7 +31,7 @@ def create_app(settings=None, engine=None):
                 await engine.close()
                 jobs.store.close()
 
-    app = FastAPI(title='FireRedASR2 HTTP Queue', version='0.3.0', lifespan=lifespan,
+    app = FastAPI(title='FireRedASR2 HTTP Queue', version='0.3.1', lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(RequestGuard, settings=settings)
 

@@ -1,6 +1,5 @@
-"""Authentication and bounded body buffering BEFORE multipart parsing."""
+"""Bounded body buffering BEFORE multipart parsing."""
 import asyncio
-import secrets
 import shutil
 import tempfile
 import time
@@ -33,9 +32,6 @@ class RequestGuard:
         if scope['type'] != 'http' or scope['path'] == '/health':
             return await self.app(scope, receive, send)
         headers = dict(scope['headers'])
-        expected = ('Bearer ' + self.s.api_key).encode('ascii')
-        if not secrets.compare_digest(headers.get(b'authorization', b''), expected):
-            return await self.reject(scope, receive, send, 401, 'Invalid API key')
         if not self.allow_rate():
             return await self.reject(scope, receive, send, 429, 'Rate limit exceeded')
         if scope['method'] != 'POST':

@@ -8,9 +8,6 @@ from config import Settings
 from jobs import Store
 from server import create_app
 
-KEY = 'test-only-key-12345678901234567890'
-HEADERS = {'Authorization': 'Bearer ' + KEY}
-
 
 class FakeEngine:
     def __init__(self, delay=0.01):
@@ -40,12 +37,12 @@ class FakeEngine:
 
 
 def settings(tmp_path, **kw):
-    return Settings(api_key=KEY, data_dir=tmp_path, min_free=0, **kw)
+    return Settings(data_dir=tmp_path, min_free=0, **kw)
 
 
 async def finish(client, job_id):
     for _ in range(300):
-        response = await client.get('/v1/transcription-jobs/' + job_id, headers=HEADERS)
+        response = await client.get('/v1/transcription-jobs/' + job_id)
         job = response.json()
         if job['status'] in ('succeeded', 'failed', 'cancelled'):
             return job
@@ -54,28 +51,27 @@ async def finish(client, job_id):
 
 
 @pytest.mark.asyncio
-async def test_fifo_capacity_failure_cancel_and_auth(tmp_path):
+async def test_fifo_capacity_failure_cancel_without_auth(tmp_path):
     engine = FakeEngine(0.1)
     app = create_app(settings(tmp_path, capacity=3), engine)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as c:
-            assert (await c.post('/v1/transcription-jobs', files={'file': ('a', b'x')})).status_code == 401
             ids = []
             for text in ('first', 'bad', 'cancel'):
-                r = await c.post('/v1/transcription-jobs', headers=HEADERS, files={'file': ('a', text)})
+                r = await c.post('/v1/transcription-jobs', files={'file': ('a', text)})
                 assert r.status_code == 202
                 ids.append(r.json()['id'])
-            assert (await c.post('/v1/transcription-jobs', headers=HEADERS,
+            assert (await c.post('/v1/transcription-jobs',
                                  files={'file': ('a', 'overflow')})).status_code == 429
-            r = await c.delete('/v1/transcription-jobs/' + ids[2], headers=HEADERS)
+            r = await c.delete('/v1/transcription-jobs/' + ids[2])
             assert r.json()['status'] == 'cancelled'
             assert (await finish(c, ids[0]))['result']['text'] == 'first'
             assert (await finish(c, ids[1]))['status'] == 'failed'
             assert engine.calls == ['first', 'bad']
             assert engine.peak == 1
             assert not any(p.is_dir() for p in tmp_path.iterdir())
-            assert (await c.get('/v1/transcription-jobs/' + ids[0])).status_code == 401
-            assert (await c.get('/v1/transcription-jobs/missing', headers=HEADERS)).status_code == 404
+            assert (await c.get('/v1/transcription-jobs/' + ids[0])).status_code == 200
+            assert (await c.get('/v1/transcription-jobs/missing')).status_code == 404
 
 
 @pytest.mark.asyncio
@@ -84,15 +80,15 @@ async def test_empty_oversize_disk_and_sync(tmp_path, monkeypatch):
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as c:
             for content, code in [(b'', 400), (b'x' * 11, 413)]:
-                r = await c.post('/v1/transcription-jobs', headers=HEADERS, files={'file': ('a', content)})
+                r = await c.post('/v1/transcription-jobs', files={'file': ('a', content)})
                 assert r.status_code == code
                 assert app.state.jobs.store.active == 0
-            r = await c.post('/v1/audio/transcriptions', headers=HEADERS, files={'file': ('a', b'hello')})
+            r = await c.post('/v1/audio/transcriptions', files={'file': ('a', b'hello')})
             assert r.status_code == 200 and r.json()['text'] == 'hello'
             from collections import namedtuple
             usage = namedtuple('usage', 'total used free')(100, 100, 0)
             monkeypatch.setattr('shutil.disk_usage', lambda _: usage)
-            assert (await c.post('/v1/transcription-jobs', headers=HEADERS,
+            assert (await c.post('/v1/transcription-jobs',
                                  files={'file': ('a', b'x')})).status_code == 507
 
 
@@ -138,14 +134,20 @@ async def test_rate_limit(tmp_path):
     app = create_app(settings(tmp_path, rate_per_minute=1), FakeEngine())
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as c:
-            assert (await c.get('/v1/status', headers=HEADERS)).status_code == 200
-            assert (await c.get('/v1/status', headers=HEADERS)).status_code == 429
+            assert (await c.get('/v1/status')).status_code == 200
+            assert (await c.get('/v1/status')).status_code == 429
 
 
-@pytest.mark.parametrize('key', ['', 'short', '密' * 32])
-def test_invalid_key(tmp_path, key):
-    with pytest.raises(ValueError):
-        Settings(api_key=key, data_dir=tmp_path)
+def test_settings_without_api_key(tmp_path, monkeypatch):
+    monkeypatch.delenv('API_KEY', raising=False)
+    monkeypatch.setenv('DATA_DIR', str(tmp_path))
+    assert Settings.from_env().data_dir == tmp_path.resolve()
+
+
+def test_legacy_api_key_is_ignored(tmp_path, monkeypatch):
+    monkeypatch.setenv('API_KEY', 'old-unused-value')
+    monkeypatch.setenv('DATA_DIR', str(tmp_path))
+    assert not hasattr(Settings.from_env(), 'api_key')
 
 
 @pytest.mark.asyncio
@@ -155,7 +157,7 @@ async def test_twenty_simultaneous_requests_bounded(tmp_path):
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as c:
             async def post(i):
-                return await c.post('/v1/transcription-jobs', headers=HEADERS,
+                return await c.post('/v1/transcription-jobs',
                                     files={'file': ('audio', str(i))})
             responses = await asyncio.gather(*(post(i) for i in range(20)))
             accepted = [r.json()['id'] for r in responses if r.status_code == 202]
@@ -173,7 +175,7 @@ async def test_disconnect_waiter_does_not_cancel_durable_task(tmp_path):
     app = create_app(settings(tmp_path), engine)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as c:
-            request = asyncio.create_task(c.post('/v1/audio/transcriptions', headers=HEADERS,
+            request = asyncio.create_task(c.post('/v1/audio/transcriptions',
                                                files={'file': ('a', 'retained')}))
             for _ in range(100):
                 if app.state.jobs.store.items:
