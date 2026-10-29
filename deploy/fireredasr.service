@@ -1,0 +1,30 @@
+# Install under /etc/systemd/system after creating an unprivileged fireredasr user.
+# Adjust paths and grant that user read access to source/models and write access to data.
+[Unit]
+Description=FireRedASR HTTP queue
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=fireredasr
+Group=fireredasr
+WorkingDirectory=/opt/fireredasr-http
+ExecStart=/bin/bash /opt/fireredasr-http/start.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/fireredasr-http/data
+Environment=HF_HOME=/opt/fireredasr-http/data/hf-cache
+Environment=TORCH_HOME=/opt/fireredasr-http/data/torch-cache
+
+[Install]
+WantedBy=multi-user.target

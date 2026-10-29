@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+.venv*/
+__pycache__/
+.pytest_cache/
+*.pyc
+vendor/
+models/
+data/
+*.sqlite3*
+installed-versions.txt
+*.wav
+*.mp3
+*.zip
